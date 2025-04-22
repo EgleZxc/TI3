@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Реализация RSA</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .radio-group {
+            display: flex;
+            gap: 15px;
+            margin: 10px 0;
+        }
+        textarea {
+            height: 100px;
+            resize: vertical;
+        }
+        button {
+            padding: 8px 15px;
+            cursor: pointer;
+        }
+        .file-buttons {
+            display: flex;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        .filename-input {
+            margin-top: 5px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>RSA</h1>
+        
+        <div class="input-group">
+            <label for="p">P (простое число):</label>
+            <input type="number" id="p">
+        </div>
+        
+        <div class="input-group">
+            <label for="q">Q (простое число):</label>
+            <input type="number" id="q">
+        </div>
+        
+        <div class="input-group">
+            <label for="d">Закрытая константа D:</label>
+            <input type="number" id="d">
+        </div>
+        
+        <button id="calculateR">Вычислить R, функцию Эйлера и E</button>
+        
+        <div class="input-group">
+            <label for="r">R:</label>
+            <input type="number" id="r" readonly>
+        </div>
+        
+        <div class="input-group">
+            <label for="euler">Функция Эйлера:</label>
+            <input type="number" id="euler" readonly>
+        </div>
+        
+        <div class="input-group">
+            <label for="e">Открытая константа E:</label>
+            <input type="number" id="e" readonly>
+        </div>
+        
+        <div class="radio-group">
+            <label>
+                <input type="radio" name="operation" id="cipherRadio" checked>
+                Шифрование
+            </label>
+            <label>
+                <input type="radio" name="operation" id="decipherRadio">
+                Дешифрование
+            </label>
+        </div>
+        
+        <div class="file-buttons">
+            <button id="openPlain" disabled>Открыть исходный файл</button>
+            <button id="saveCipher" disabled>Сохранить зашифрованный файл</button>
+            <button id="openCipher" disabled>Открыть зашифрованный файл</button>
+            <button id="savePlain" disabled>Сохранить дешифрованный файл</button>
+        </div>
+        
+        <div class="input-group filename-input" id="cipherFilenameGroup">
+            <label for="cipherFilename">Имя зашифрованного файла:</label>
+            <input type="text" id="cipherFilename" placeholder="encrypted.txt" value="encrypted.txt">
+        </div>
+        
+        <div class="input-group filename-input" id="plainFilenameGroup">
+            <label for="plainFilename">Имя дешифрованного файла:</label>
+            <input type="text" id="plainFilename" placeholder="decrypted.txt" value="decrypted.txt">
+        </div>
+        
+        <div class="input-group">
+            <label for="plainText">Исходный текст:</label>
+            <textarea id="plainText"></textarea>
+        </div>
+        
+        <div class="input-group">
+            <label for="cipherText">Зашифрованный текст:</label>
+            <textarea id="cipherText"></textarea>
+        </div>
+        
+        <button id="processButton" disabled>Зашифровать</button>
+        <button id="clearButton">Очистить все поля</button>
+        
+        <input type="file" id="fileInput" style="display: none;">
+        <input type="file" id="fileInputCipher" style="display: none;" accept=".txt">
+    </div>
+
+    <script>
+        const RSA = {
+            eulerPhi: function(n) {
+                let result = n;
+                for (let p = 2; p * p <= n; ++p) {
+                    if (n % p === 0) {
+                        while (n % p === 0) n = Math.floor(n / p);
+                        result -= Math.floor(result / p);
+                    }
+                }
+                if (n > 1) result -= Math.floor(result / n);
+                return result;
+            },
+            
+            isPrime: function(number) {
+                if (number <= 1) return false;
+                if (number <= 3) return true;
+                if (number % 2 === 0 || number % 3 === 0) return false;
+                for (let i = 5; i * i <= number; i += 6) {
+                    if (number % i === 0 || number % (i + 2) === 0) return false;
+                }
+                return true;
+            },
+            
+            findGcd: function(a, b) {
+                return b === 0 ? a : this.findGcd(b, a % b);
+            },
+            
+            extendedEuclidean: function(a, b) {
+                let x0 = 1, y0 = 0, x1 = 0, y1 = 1;
+                let d0 = a, d1 = b;
+                while (d1 !== 0) {
+                    const q = Math.floor(d0 / d1);
+                    const d2 = d0 % d1;
+                    const x2 = x0 - q * x1;
+                    const y2 = y0 - q * y1;
+                    d0 = d1; d1 = d2;
+                    x0 = x1; x1 = x2;
+                    y0 = y1; y1 = y2;
+                }
+                if (y0 < 0) y0 += a;
+                return { gcd: d0, x: x0, y: y0 };
+            },
+            
+            quickPowerMod: function(num, power, mod) {
+                if (mod === 1) return 0;
+                if (power === 0) return 1;
+                if (num === 0) return 0;
+                let result = 1;
+                let current = num % mod;
+                let exponent = power;
+                while (exponent > 0) {
+                    if (exponent % 2 === 1) result = (result * current) % mod;
+                    current = (current * current) % mod;
+                    exponent = Math.floor(exponent / 2);
+                }
+                return result;
+            }
+        };
+
+        const state = {
+            r: 0,
+            euler: 0,
+            e: 0,
+            d: 0,
+            openedPlainFileBytes: null,
+            openedCipherFileBytes: null,
+            cipherResult: null,
+            decipherResult: null
+        };
+
+        const elements = {
+            p: document.getElementById('p'),
+            q: document.getElementById('q'),
+            d: document.getElementById('d'),
+            r: document.getElementById('r'),
+            euler: document.getElementById('euler'),
+            e: document.getElementById('e'),
+            cipherRadio: document.getElementById('cipherRadio'),
+            decipherRadio: document.getElementById('decipherRadio'),
+            openPlain: document.getElementById('openPlain'),
+            saveCipher: document.getElementById('saveCipher'),
+            openCipher: document.getElementById('openCipher'),
+            savePlain: document.getElementById('savePlain'),
+            plainText: document.getElementById('plainText'),
+            cipherText: document.getElementById('cipherText'),
+            processButton: document.getElementById('processButton'),
+            clearButton: document.getElementById('clearButton'),
+            fileInput: document.getElementById('fileInput'),
+            fileInputCipher: document.getElementById('fileInputCipher'),
+            calculateR: document.getElementById('calculateR'),
+            cipherFilenameGroup: document.getElementById('cipherFilenameGroup'),
+            plainFilenameGroup: document.getElementById('plainFilenameGroup'),
+            cipherFilename: document.getElementById('cipherFilename'),
+            plainFilename: document.getElementById('plainFilename')
+        };
+
+        elements.cipherRadio.addEventListener('change', function() {
+            updateUI();
+            clearTextFields();
+        });
+        elements.decipherRadio.addEventListener('change', function() {
+            updateUI();
+            clearTextFields();
+        });
+        elements.openPlain.addEventListener('click', () => elements.fileInput.click());
+        elements.openCipher.addEventListener('click', () => elements.fileInputCipher.click());
+        elements.saveCipher.addEventListener('click', saveCipherFile);
+        elements.savePlain.addEventListener('click', savePlainFile);
+        elements.processButton.addEventListener('click', processData);
+        elements.clearButton.addEventListener('click', clearAll);
+        elements.fileInput.addEventListener('change', handlePlainFileSelect);
+        elements.fileInputCipher.addEventListener('change', handleCipherFileSelect);
+        elements.calculateR.addEventListener('click', calculateR);
+
+        function clearTextFields() {
+            elements.plainText.value = '';
+            elements.cipherText.value = '';
+            state.openedPlainFileBytes = null;
+            state.openedCipherFileBytes = null;
+            state.cipherResult = null;
+            state.decipherResult = null;
+        }
+
+        function updateUI() {
+            if (elements.cipherRadio.checked) {
+                elements.openPlain.disabled = false;
+                elements.openCipher.disabled = true;
+                elements.saveCipher.disabled = false;
+                elements.savePlain.disabled = true;
+                elements.processButton.textContent = 'Зашифровать';
+                elements.cipherFilenameGroup.style.display = 'block';
+                elements.plainFilenameGroup.style.display = 'none';
+            } else {
+                elements.openPlain.disabled = true;
+                elements.openCipher.disabled = false;
+                elements.saveCipher.disabled = true;
+                elements.savePlain.disabled = false;
+                elements.processButton.textContent = 'Дешифровать';
+                elements.cipherFilenameGroup.style.display = 'none';
+                elements.plainFilenameGroup.style.display = 'block';
+            }
+        }
+
+        function calculateR() {
+            const pValue = elements.p.value.replace(/\D/g, '');
+            const qValue = elements.q.value.replace(/\D/g, '');
+            const dValue = elements.d.value.replace(/\D/g, '');
+
+            elements.p.value = pValue;
+            elements.q.value = qValue;
+            elements.d.value = dValue;
+
+            if (!pValue) {
+                alert('P не может быть пустым!');
+                return;
+            }
+
+            if (!qValue) {
+                alert('Q не может быть пустым!');
+                return;
+            }
+
+            let integerP, integerQ;
+            try {
+                integerP = parseInt(pValue);
+                if (!RSA.isPrime(integerP)) {
+                    alert('P должно быть простым числом!');
+                    return;
+                }
+
+                integerQ = parseInt(qValue);
+                if (!RSA.isPrime(integerQ)) {
+                    alert('Q должно быть простым числом!');
+                    return;
+                }
+            } catch (e) {
+                alert('Проверьте диапазон чисел');
+                return;
+            }
+
+            state.r = integerQ * integerP;
+            if (state.r < 256 || state.r > 65535) {
+                alert(`R должен быть между 256 и 65535!`);
+                return;
+            }
+
+            elements.r.value = state.r;
+            state.euler = RSA.eulerPhi(state.r);
+            elements.euler.value = state.euler;
+
+            if (!dValue) {
+                alert('Закрытая константа D не может быть пустой!');
+                return;
+            }
+
+            state.d = parseInt(dValue);
+            if (state.d <= 1 || state.d >= state.euler) {
+                alert('Закрытая константа D должна быть между 1 и значением функции Эйлера!');
+                return;
+            }
+
+            const gcd = RSA.findGcd(state.d, state.euler);
+            if (gcd !== 1) {
+                alert('Закрытая константа D должна быть взаимно простой со значением функции Эйлера!');
+                return;
+            }
+
+            const extendedEuclidResult = RSA.extendedEuclidean(state.euler, state.d);
+            state.e = extendedEuclidResult.y;
+            elements.e.value = state.e;
+
+            elements.processButton.disabled = false;
+        }
+
+        function handlePlainFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const arrayBuffer = e.target.result;
+                state.openedPlainFileBytes = new Uint8Array(arrayBuffer);
+                elements.plainText.value = Array.from(state.openedPlainFileBytes).join(' ');
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function handleCipherFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const symbolString = e.target.result;
+                    const numbers = [];
+                    
+                    for (let i = 0; i < symbolString.length; i++) {
+                        numbers.push(symbolString.charCodeAt(i));
+                    }
+
+                    state.cipherResult = new Uint16Array(numbers);
+                    elements.cipherText.value = Array.from(state.cipherResult).join(' ');
+                    
+                    event.target.value = '';
+                } catch (error) {
+                    alert("Ошибка при чтении файла: " + error.message);
+                    console.error(error);
+                }
+            };
+
+            reader.onerror = function() {
+                alert("Ошибка чтения файла");
+            };
+
+            reader.readAsText(file);
+        }
+
+        function processData() {
+            if (elements.cipherRadio.checked) {
+                if (!elements.plainText.value) {
+                    alert('Исходный текст не может быть пустым. Откройте файл!');
+                    return;
+                }
+
+                state.cipherResult = new Uint16Array(state.openedPlainFileBytes.length);
+                for (let i = 0; i < state.cipherResult.length; i++) {
+                    state.cipherResult[i] = state.openedPlainFileBytes[i];
+                }
+
+                for (let i = 0; i < state.cipherResult.length; i++) {
+                    state.cipherResult[i] = RSA.quickPowerMod(state.cipherResult[i], state.e, state.r);
+                }
+
+                elements.cipherText.value = Array.from(state.cipherResult).join(' ');
+            } else {
+                if (!elements.cipherText.value) {
+                    alert('Зашифрованный текст не может быть пустым. Откройте файл!');
+                    return;
+                }
+
+                const tempShort = new Uint16Array(state.cipherResult.length);
+
+                for (let i = 0; i < tempShort.length; i++) {
+                    tempShort[i] = RSA.quickPowerMod(state.cipherResult[i], state.d, state.r);
+                }
+
+                state.decipherResult = new Uint8Array(tempShort.length);
+                for (let i = 0; i < tempShort.length; i++) {
+                    state.decipherResult[i] = tempShort[i] & 0xFF;
+                }
+
+                elements.plainText.value = Array.from(tempShort).join(' ');
+            }
+        }
+
+        function saveCipherFile() {
+            if (!elements.cipherText.value || !state.cipherResult) {
+                alert('Нет данных для сохранения!');
+                return;
+            }
+
+            const filename = elements.cipherFilename.value.trim();
+            if (!filename) {
+                alert('Введите имя файла!');
+                return;
+            }
+
+            let symbolString = '';
+            for (let i = 0; i < state.cipherResult.length; i++) {
+                symbolString += String.fromCharCode(state.cipherResult[i]);
+            }
+
+            const blob = new Blob([symbolString], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function savePlainFile() {
+            if (!elements.plainText.value || !state.decipherResult) {
+                alert('Нет данных для сохранения!');
+                return;
+            }
+
+            const filename = elements.plainFilename.value.trim();
+            if (!filename) {
+                alert('Введите имя файла!');
+                return;
+            }
+
+            const blob = new Blob([state.decipherResult], { type: 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function clearAll() {
+            elements.p.value = '';
+            elements.q.value = '';
+            elements.d.value = '';
+            elements.r.value = '';
+            elements.euler.value = '';
+            elements.e.value = '';
+            elements.plainText.value = '';
+            elements.cipherText.value = '';
+            elements.cipherFilename.value = 'encrypted.txt';
+            elements.plainFilename.value = 'decrypted.txt';
+            elements.processButton.disabled = true;
+            state.r = 0;
+            state.euler = 0;
+            state.e = 0;
+            state.d = 0;
+            state.openedPlainFileBytes = null;
+            state.openedCipherFileBytes = null;
+            state.cipherResult = null;
+            state.decipherResult = null;
+        }
+
+        updateUI();
+    </script>
+</body>
+</html>
